@@ -1,0 +1,345 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String    @id @default(uuid())
+  email             String    @unique
+  username          String    @unique
+  password          String
+  walletAddress     String?   @unique
+  profileImageUrl   String?
+  bio               String?
+  role              Role      @default(USER)
+  status            Status    @default(ACTIVE)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  // Relaciones
+  seller            Seller?
+  products          Product[]
+  reviews           Review[]    // Reviews dejadas por el usuario
+  receivedReviews   Review[]    @relation("ReceivedReviews")
+  orders            Order[]     // Órdenes realizadas como comprador
+  notifications     Notification[]
+  
+  @@map("users")
+}
+
+model Seller {
+  id                String    @id @default(uuid())
+  userId            String    @unique
+  storeName         String
+  storeDescription  String?
+  contactEmail      String
+  contactPhone      String?
+  verified          Boolean   @default(false)
+  reputationScore   Float     @default(0)
+  totalSales        Int       @default(0)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  // Relaciones
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  products          Product[]
+  orders            Order[]   @relation("SellerOrders")
+  
+  @@map("sellers")
+}
+
+model Category {
+  id                String    @id @default(uuid())
+  name              String    @unique
+  description       String?
+  imageUrl          String?
+  slug              String    @unique
+  parentId          String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  // Relaciones
+  parent            Category?  @relation("SubCategories", fields: [parentId], references: [id])
+  subCategories     Category[] @relation("SubCategories")
+  products          Product[]
+  
+  @@map("categories")
+}
+
+model Product {
+  id                String    @id @default(uuid())
+  name              String
+  description       String
+  price             Decimal   @db.Decimal(10, 2)
+  currencyType      Currency  @default(USDC)
+  stock             Int       @default(0)
+  sold              Int       @default(0)
+  isDigital         Boolean   @default(false)
+  digitalUrl        String?
+  condition         Condition @default(NEW)
+  slug              String    @unique
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  // Relaciones
+  sellerId          String
+  seller            Seller    @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  categoryId        String
+  category          Category  @relation(fields: [categoryId], references: [id])
+  images            ProductImage[]
+  orderItems        OrderItem[]
+  reviews           Review[]
+  
+  @@map("products")
+}
+
+model ProductImage {
+  id                String    @id @default(uuid())
+  url               String
+  isFeatured        Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  // Relaciones
+  productId         String
+  product           Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  @@map("product_images")
+}
+
+model Order {
+  id                String    @id @default(uuid())
+  orderNumber       String    @unique
+  total             Decimal   @db.Decimal(10, 2)
+  currencyType      Currency  @default(USDC)
+  status            OrderStatus @default(PENDING)
+  paymentStatus     PaymentStatus @default(PENDING)
+  paymentMethod     PaymentMethod
+  shippingAddress   String?
+  txHash            String?   // Hash de la transacción blockchain
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  // Relaciones
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sellerId          String
+  seller            Seller    @relation("SellerOrders", fields: [sellerId], references: [id])
+  orderItems        OrderItem[]
+  shippingTracking  ShippingTracking?
+  
+  @@map("orders")
+}
+
+model OrderItem {
+  id                String    @id @default(uuid())
+  quantity          Int
+  price             Decimal   @db.Decimal(10, 2)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  // Relaciones
+  orderId           String
+  order             Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId         String
+  product           Product   @relation(fields: [productId], references: [id])
+  
+  @@map("order_items")
+}
+
+model ShippingTracking {
+  id                String    @id @default(uuid())
+  trackingNumber    String?
+  carrier           String?
+  estimatedDelivery DateTime?
+  status            ShippingStatus @default(PROCESSING)
+  lastUpdated       DateTime  @default(now())
+  contractAddress   String?   // Dirección del smart contract de logística
+  
+  // Relaciones
+  orderId           String    @unique
+  order             Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  trackingEvents    TrackingEvent[]
+  
+  @@map("shipping_tracking")
+}
+
+model TrackingEvent {
+  id                String    @id @default(uuid())
+  status            ShippingStatus
+  location          String?
+  description       String?
+  timestamp         DateTime  @default(now())
+  
+  // Relaciones
+  trackingId        String
+  tracking          ShippingTracking @relation(fields: [trackingId], references: [id], onDelete: Cascade)
+  
+  @@map("tracking_events")
+}
+
+model Review {
+  id                String    @id @default(uuid())
+  rating            Int       // 1-5 estrellas
+  comment           String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  // Relaciones
+  userId            String    // Usuario que deja la review
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  receiverId        String    // Usuario que recibe la review
+  receiver          User      @relation("ReceivedReviews", fields: [receiverId], references: [id])
+  productId         String?
+  product           Product?  @relation(fields: [productId], references: [id])
+  
+  @@map("reviews")
+}
+
+model Notification {
+  id                String    @id @default(uuid())
+  type              NotificationType
+  title             String
+  message           String
+  isRead            Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+  
+  // Relaciones
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("notifications")
+}
+
+model BlockchainTransaction {
+  id                String    @id @default(uuid())
+  txHash            String    @unique  // Hash de la transacción
+  fromAddress       String
+  toAddress         String
+  amount            String
+  currency          Currency
+  status            TransactionStatus @default(PENDING)
+  type              TransactionType
+  createdAt         DateTime  @default(now())
+  confirmedAt       DateTime?
+  
+  @@map("blockchain_transactions")
+}
+
+model SmartContract {
+  id                String    @id @default(uuid())
+  name              String
+  address           String    @unique
+  network           Network
+  type              ContractType
+  version           String
+  abi               Json?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  @@map("smart_contracts")
+}
+
+// Enums para diferentes tipos de estado y clasificación
+
+enum Role {
+  USER
+  SELLER
+  ADMIN
+}
+
+enum Status {
+  ACTIVE
+  SUSPENDED
+  BANNED
+}
+
+enum Currency {
+  XLM
+  USDC
+}
+
+enum Condition {
+  NEW
+  USED
+  REFURBISHED
+}
+
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  COMPLETED
+  DISPUTED
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  STELLAR_XLM
+  STELLAR_USDC
+}
+
+enum ShippingStatus {
+  PROCESSING
+  SHIPPED
+  IN_TRANSIT
+  OUT_FOR_DELIVERY
+  DELIVERED
+  FAILED
+  RETURNED
+}
+
+enum NotificationType {
+  ORDER
+  PAYMENT
+  SHIPPING
+  REVIEW
+  SYSTEM
+}
+
+enum TransactionStatus {
+  PENDING
+  CONFIRMING
+  CONFIRMED
+  FAILED
+}
+
+enum TransactionType {
+  PAYMENT
+  REFUND
+  ESCROW_DEPOSIT
+  ESCROW_RELEASE
+  FEE
+}
+
+enum Network {
+  STELLAR_MAINNET
+  STELLAR_TESTNET
+  SOROBAN_MAINNET
+  SOROBAN_TESTNET
+}
+
+enum ContractType {
+  MARKETPLACE
+  ESCROW
+  LOGISTICS
+  REPUTATION
+}
